@@ -1,28 +1,29 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
-/// A container with the same gradient background used on LoginScreen and Dashboard.
+/// The shared soft-blue page background used across the app.
 class GradientBackground extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
+  final bool safeArea;
 
-  const GradientBackground({super.key, required this.child, this.padding});
+  const GradientBackground({
+    super.key,
+    required this.child,
+    this.padding,
+    this.safeArea = true,
+  });
 
   @override
   Widget build(BuildContext context) {
+    Widget content = Padding(
+      padding: padding ?? const EdgeInsets.all(16),
+      child: child,
+    );
+
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFE8F0FE), Color(0xFFFFFFFF)],
-        ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: padding ?? const EdgeInsets.all(16),
-          child: child,
-        ),
-      ),
+      decoration: const BoxDecoration(gradient: AppColors.backgroundGradient),
+      child: safeArea ? SafeArea(child: content) : content,
     );
   }
 }

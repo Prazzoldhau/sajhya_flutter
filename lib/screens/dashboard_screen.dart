@@ -1,9 +1,11 @@
 // lib/screens/dashboard_screen.dart
 import 'package:flutter/material.dart';
 
-import '../widgets/custom_app_bar.dart';
+import '../theme/app_theme.dart';
 import '../widgets/custom_card.dart';
 import '../widgets/custom_section_header.dart';
+import '../widgets/gradient_background.dart';
+import 'video_player_screen.dart';
 
 // --- Models (unchanged) ---
 class Exercise {
@@ -49,7 +51,7 @@ class Prescription {
 }
 
 // ---------------------------------------------------------------------------
-// DASHBOARD SCREEN – YOUTUBE STYLE (dark background, thumbnails + titles)
+// DASHBOARD SCREEN – light healthcare style (white cards on soft blue wash)
 // ---------------------------------------------------------------------------
 class DashboardScreen extends StatefulWidget {
   final Map<String, dynamic> patientData;
@@ -71,66 +73,94 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? Prescription.fromJson(rawPrescription)
         : null;
 
+    final exerciseCount = prescription?.exercises.length ?? 0;
+
     return Scaffold(
-      // Dark app bar matching YouTube style
       appBar: AppBar(
-        title: const Text(
-          'Exercise Prescriptions',
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.black,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('My Exercises'),
       ),
-      // Dark background (like YouTube dark theme)
-      body: Container(
-        color: Colors.black,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: ListView(
-              children: [
-                // Patient header – keep it readable on dark background
-                CustomSectionHeader(
-                  patientName: patientName,
-                  diagnosis: diagnosis,
-                ),
-                const SizedBox(height: 16),
-                if (prescription == null)
-                  _buildEmptyState()
-                else ...[
-                  _buildExerciseFeed(prescription.exercises),
-                  if (prescription.notes != null &&
-                      prescription.notes!.trim().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: _buildNotesCard(prescription.notes!),
-                    ),
-                ],
-              ],
+      body: GradientBackground(
+        padding: EdgeInsets.zero,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+          children: [
+            // Patient header card
+            CustomSectionHeader(
+              patientName: patientName,
+              diagnosis: diagnosis,
             ),
-          ),
+            const SizedBox(height: 24),
+
+            // Section title with count chip
+            if (prescription != null && exerciseCount > 0) ...[
+              Row(
+                children: [
+                  Text(
+                    'Prescribed Exercises',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '$exerciseCount',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            if (prescription == null)
+              _buildEmptyState()
+            else ...[
+              _buildExerciseFeed(prescription.exercises),
+              if (prescription.notes != null &&
+                  prescription.notes!.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _buildNotesCard(prescription.notes!),
+                ),
+            ],
+          ],
         ),
       ),
     );
   }
 
   Widget _buildEmptyState() {
-    return const CustomCard(
-      color: Colors.grey,
-      padding: EdgeInsets.all(32),
+    return CustomCard(
+      padding: const EdgeInsets.all(32),
       child: Column(
         children: [
-          Icon(Icons.assignment_outlined, size: 48, color: Colors.grey),
-          SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.assignment_outlined,
+                size: 40, color: AppColors.primary),
+          ),
+          const SizedBox(height: 16),
           Text(
             'No Prescriptions Yet',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+            style: Theme.of(context).textTheme.titleMedium,
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
-            'You do not have any exercise prescriptions.',
-            style: TextStyle(color: Colors.grey),
+            'You do not have any exercise prescriptions assigned right now.',
+            style: Theme.of(context).textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),
         ],
@@ -140,73 +170,143 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildExerciseFeed(List<Exercise> exercises) {
     if (exercises.isEmpty) {
-      return const CustomCard(
-        color: Colors.grey,
+      return CustomCard(
+        padding: const EdgeInsets.all(24),
         child: Text(
           'No exercises assigned.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white70),
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
       );
     }
-    return ListView.builder(
+    // Resolve every exercise to a playable item once, so the player can carry
+    // the whole prescription as a playlist (enables auto-advance in M4) and the
+    // feed can show real YouTube thumbnails.
+    final playlist = exercises
+        .map((e) => ExerciseVideo.fromUrl(e.exerciseName, e.exerciseUrl))
+        .toList();
+
+    return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: exercises.length,
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      itemBuilder: (context, index) {
-        final exercise = exercises[index];
-        return _buildFeedItem(exercise);
-      },
+      separatorBuilder: (_, __) => const SizedBox(height: 16),
+      itemBuilder: (context, index) =>
+          _buildFeedItem(playlist[index], playlist, index),
     );
   }
 
-  // --- YouTube-style feed item: thumbnail + title below ---
-  Widget _buildFeedItem(Exercise exercise) {
-    // 16:9 aspect ratio – width is screen width minus padding, so we compute height.
-    final screenWidth = MediaQuery.of(context).size.width;
-    final cardWidth = screenWidth - 24; // 12 padding on each side
-    final thumbnailHeight = cardWidth * 9 / 16; // 16:9
+  void _openPlayer(List<ExerciseVideo> playlist, int index) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => VideoPlayerScreen(
+          playlist: playlist,
+          initialIndex: index,
+        ),
+      ),
+    );
+  }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+  // --- Light card: thumbnail with play overlay + title below ---
+  Widget _buildFeedItem(
+    ExerciseVideo item,
+    List<ExerciseVideo> playlist,
+    int index,
+  ) {
+    return CustomCard(
+      padding: EdgeInsets.zero,
+      onTap: () => _openPlayer(playlist, index),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- Thumbnail ---
+          // --- Thumbnail with rounded top corners + play badge ---
           ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: exercise.exerciseUrl != null
-                ? Image.network(
-                    exercise.exerciseUrl!,
-                    width: double.infinity,
-                    height: thumbnailHeight,
-                    fit: BoxFit.cover, // fills the width, crops if needed
-                    errorBuilder: (_, __, ___) => Container(
-                      height: thumbnailHeight,
-                      color: Colors.grey[800],
-                      child: const Icon(Icons.image_not_supported, color: Colors.grey),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(20)),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (item.thumbnailUrl != null)
+                    Image.network(
+                      item.thumbnailUrl!,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          color: const Color(0xFFEDF3FA),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 26,
+                              height: 26,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2.5),
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (_, __, ___) => _thumbPlaceholder(),
+                    )
+                  else
+                    _thumbPlaceholder(),
+                  // Soft gradient so the play button always reads
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.18),
+                        ],
+                      ),
                     ),
-                  )
-                : Container(
-                    height: thumbnailHeight,
-                    color: Colors.grey[800],
-                    child: const Icon(Icons.image_not_supported, color: Colors.grey),
                   ),
-          ),
-          const SizedBox(height: 8),
-          // --- Title (white text on dark background) ---
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Text(
-              exercise.exerciseName,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
+                  // Play badge
+                  Center(
+                    child: Container(
+                      width: 54,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 12,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                          item.hasVideo
+                              ? Icons.play_arrow_rounded
+                              : Icons.zoom_out_map_rounded,
+                          color: AppColors.primary,
+                          size: 34),
+                    ),
+                  ),
+                ],
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // --- Title row ---
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    item.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right_rounded,
+                    color: AppColors.textSecondary),
+              ],
             ),
           ),
         ],
@@ -214,24 +314,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _thumbPlaceholder() {
+    return Container(
+      color: const Color(0xFFEDF3FA),
+      child: const Icon(Icons.fitness_center_rounded,
+          color: AppColors.primaryLight, size: 40),
+    );
+  }
+
   Widget _buildNotesCard(String notes) {
     return CustomCard(
-      color: Colors.grey[800]!, // dark background for notes
-      padding: const EdgeInsets.all(16),
+      color: AppColors.primary.withValues(alpha: 0.06),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '📋 Prescription Notes',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.white70,
-            ),
+          const Row(
+            children: [
+              Icon(Icons.sticky_note_2_outlined,
+                  color: AppColors.primary, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Prescription Notes',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primaryDark,
+                  fontSize: 15,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
           Text(
             notes,
-            style: const TextStyle(color: Colors.white70, fontSize: 14),
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 14,
+              height: 1.5,
+            ),
           ),
         ],
       ),
